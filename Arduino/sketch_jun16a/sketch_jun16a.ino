@@ -10,7 +10,7 @@ CRGB readLeds[NUM_READS];
 void setup() { 
   Serial.begin(115200);
   mapRealToRead();
-  FastLED.addLeds<WS2811, 6>(leds, NUM_LEDS);
+  FastLED.addLeds<WS2811, 6, RGB>(leds, NUM_LEDS);
   FastLED.setCorrection(TypicalLEDStrip);
 }
 
@@ -43,14 +43,13 @@ void loop() {
     readOnce = true;
     drawLeds();
     FastLED.show();
-  }
-
-  if(!readOnce) {
-    drawLedsDebug();
-    //clearLeds();
+  } else {
+   // drawLedsDebug();
+    //drawStrobe();
+    clearLeds();
     FastLED.show();
+    //FastLED.delay(1000/60);
   }
-  //delay(1000/FPS);
 }
 
 void drawLeds(){
@@ -58,6 +57,14 @@ void drawLeds(){
   for(uint8_t i = 0; i < NUM_LEDS; i++){
     ledMap map = ledMaps[i];
     leds[i] = blend(readLeds[map.left], readLeds[map.right], map.amountOfRight);
+  }
+}
+
+void drawStrobe(){
+  static bool isWhite = false;
+  isWhite = !isWhite;
+  for(uint8_t i = 0; i < NUM_LEDS; i++){
+    leds[i] = isWhite ? CRGB::White : CRGB::Black;
   }
 }
 
@@ -131,12 +138,14 @@ bool readData() {
 
 const char header[9] = "LEDSTRIP";
 bool readHeader(){
+  long lastRecieve = millis();
   char b;
   static int i = 0;
   int timeout = 5;
   while(i < 8){
     b = Serial.read();
     if(b == header[i]){
+      long lastRecieve = millis();
       i++;
     //if recieved but not right
     } else if (b != -1) {
@@ -148,12 +157,12 @@ bool readHeader(){
       }
       Serial.print('\n');
       i = 0;
-      timeout--;
-      //CHANGED HERE
-      if(timeout <= 0)
-        return false;
     //if not recieved but first index
-    } else if(i == 0){
+    //} else if(i == 0){
+      //return false;
+    } else if(2000 < (millis() - lastRecieve)){
+      Serial.write((millis() - lastRecieve));
+      i = 0;
       return false;
     }
   }
