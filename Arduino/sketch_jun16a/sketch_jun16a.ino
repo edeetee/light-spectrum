@@ -1,17 +1,17 @@
 #include "FastLED.h"
-#define NUM_LEDS 100
-#define SPLITS 1
-#define NUM_READS NUM_LEDS/SPLITS
+#define NUM_LEDS 200
+#define NUM_READS 200
 #define FPS 60
 
 CRGB leds[NUM_LEDS];
 CRGB readLeds[NUM_READS];
+uint8_t readVals[NUM_READS];
 
 void setup() { 
   Serial.begin(115200);
   mapRealToRead();
-  FastLED.addLeds<WS2811, 6, RGB>(leds, NUM_LEDS);
-  FastLED.setCorrection(TypicalLEDStrip);
+  FastLED.addLeds<WS2811, 6, BRG>(leds, NUM_LEDS);
+  FastLED.setTemperature(Tungsten100W);
 }
 
 typedef struct LEDMap{
@@ -37,14 +37,15 @@ void mapRealToRead(){
   }
 }
 
-bool readOnce = false;
 void loop() {
   if(readData()){
-    readOnce = true;
-    drawLeds();
+    //drawLeds();
+    drawLedsFloat();
+    //drawStrobe();
     FastLED.show();
   } else {
-   // drawLedsDebug();
+    //drawLedsIndividuals();
+    //drawLedsDebug();
     //drawStrobe();
     clearLeds();
     FastLED.show();
@@ -60,6 +61,19 @@ void drawLeds(){
   }
 }
 
+void drawLedsFloat(){
+  int calcIndex;
+  uint8_t val;
+  uint8_t curHue;
+  uint8_t milliMod = (uint8_t)(millis()/(20000/255));
+  for(uint8_t i = 0; i < NUM_LEDS; i++){
+    ledMap map = ledMaps[i];
+    val = readVals[i];
+    curHue = val/4 + milliMod + i/10;
+    leds[i] = CHSV(curHue, 255 + (200-max(200,val))/2, val);
+  }
+}
+
 void drawStrobe(){
   static bool isWhite = false;
   isWhite = !isWhite;
@@ -69,11 +83,18 @@ void drawStrobe(){
 }
 
 void drawLedsDebug(){
-  static double ledMod = 0;
+  uint8_t milliMod = (uint8_t)(millis()/100);
   for(uint8_t i = 0; i < NUM_LEDS; i++){
-    leds[i] = CHSV(255*(i/10+ledMod)/NUM_LEDS, 255, 255);
+    leds[i] = CHSV(255*i/NUM_LEDS+milliMod, 255, 255);
   }
-  ledMod += 0.01;
+}
+
+void drawLedsIndividuals(){
+  uint8_t iMod;
+  for(uint8_t i = 0; i < NUM_LEDS; i++){
+    iMod = i % 3;
+    leds[i] = CRGB(255 *(iMod == 0), 255 *(iMod == 1), 255 *(iMod == 2));
+  }
 }
 
 void clearLeds(){
@@ -88,9 +109,12 @@ void clearLeds(){
 bool readData() {
   if(readHeader()){
     int bytesRead = 0;
-    while(bytesRead < NUM_READS*3) {
-      bytesRead += Serial.readBytes( ((byte*)readLeds) + bytesRead, (NUM_READS*3)-bytesRead);
+    while(bytesRead < NUM_READS) {
+      bytesRead += Serial.readBytes( (byte*)readVals + bytesRead, NUM_READS-bytesRead);
     }
+//    while(bytesRead < NUM_READS*3) {
+//      bytesRead += Serial.readBytes( ((byte*)readLeds) + bytesRead, (NUM_READS*3)-bytesRead);
+//    }
 //    CRGB curPixel;
 //    for(int i = 0; i < NUM_READS; i++){
 //      curPixel = readLeds[i];
@@ -160,7 +184,7 @@ bool readHeader(){
     //if not recieved but first index
     //} else if(i == 0){
       //return false;
-    } else if(2000 < (millis() - lastRecieve)){
+    } else if(100 < (millis() - lastRecieve)){
       Serial.write((millis() - lastRecieve));
       i = 0;
       return false;

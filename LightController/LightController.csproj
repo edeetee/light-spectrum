@@ -33,7 +33,7 @@
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
   <PropertyGroup>
-    <StartupObject />
+    <StartupObject>LightController.Program</StartupObject>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="ColorMine, Version=1.1.3.0, Culture=neutral, processorArchitecture=MSIL">
@@ -71,6 +71,7 @@
     <Compile Include="ScalingStrategy.cs" />
     <Compile Include="ScreenGrab.cs" />
     <Compile Include="SpectrumBase.cs" />
+    <Compile Include="SpectrumQueue.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />

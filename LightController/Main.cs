@@ -23,12 +23,7 @@ namespace LightController
     {
         SerialPort port;
 
-        public int num_leds = 100 / 1;
-
-        int i = 0;
-        int num_samples = 3;
-        float[] samples;
-        float max;
+        public int num_leds = 200;
 
         Thread mainThread;
 
@@ -38,6 +33,8 @@ namespace LightController
 
         WasapiLoopbackCapture capture;
 
+        bool running = true;
+
         public Main()
         {
             InitializeComponent();
@@ -45,8 +42,6 @@ namespace LightController
             port.Open();
 
             port.DataReceived += Port_DataReceived;
-
-            samples = new float[num_samples];
 
             capture = new WasapiLoopbackCapture();
             capture.Device = MMDeviceEnumerator.DefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
@@ -66,7 +61,8 @@ namespace LightController
             spectrum = new LightStripSpectrum(provider.FftSize)
             {
                 SpectrumProvider = (ISpectrumProvider)provider,
-                UseAverage = true,
+                MinimumFrequency = 80,
+                UseAverage = false,
                 Lights = num_leds,
                 IsXLogScale = false,
                 ScalingStrategy = ScalingStrategy.Sqrt,
@@ -87,7 +83,7 @@ namespace LightController
             capture.Start();
             mainThread = new Thread(() =>
             {
-                while (true)
+                while (running)
                 {
                     switch (mode)
                     {
@@ -102,6 +98,10 @@ namespace LightController
                             break;
                         case Mode.Off:
                             showColor(new Rgb() { R = 0, G = 0, B = 0 });
+                            Thread.Sleep(50);
+                            break;
+                        case Mode.Debug:
+                            showDebug();
                             break;
                         default:
                             break;
@@ -110,8 +110,13 @@ namespace LightController
                     //showSpectrum();
                     //showScreenColor();
                 }
+                port.Close();
+                capture.Stop();
+                Application.Exit();
+                Environment.Exit(1);
             });
             runningStopwatch.Start();
+            spectrumWriteWatch.Start();
             mainThread.Start();
         }
 
@@ -119,6 +124,12 @@ namespace LightController
         {
 
         }
+
+        private void Main_FormClosing(Object sender, FormClosingEventArgs e)
+        {
+            running = false;
+        }
+
 
         private Stopwatch lastHeaderError = new Stopwatch();
         private void Port_DataReceived(object sender, SerialDataReceivedEventArgs e)
@@ -140,16 +151,42 @@ namespace LightController
             Console.WriteLine(line);
         }
 
+        private void showDebug()
+        {
+            byte[] writes = new byte[num_leds * 3];
+            DateTime now = DateTime.Now;
+            int secondI = (int)now.Second % num_leds;
+            for (int i = 0; i < num_leds; i++)
+            {
+                //bool isSecond = secondI - 1 <= i && i <= secondI + 1 && i != secondI;
+                bool isSecond = i != secondI;
+                var color = new Hsv()
+                {
+                    H = 0,
+                    V = isSecond ? 0 : 1,
+                    S = 0
+                }.ToRgb();
+                writes[i * 3] = (byte)(color.R);
+                writes[i * 3 + 1] = (byte)(color.G);
+                writes[i * 3 + 2] = (byte)(color.B);
+            }
+            sendLeds(writes);
+            Thread.Sleep(100);
+        }
+
         private void showClock()
         {
             byte[] writes = new byte[num_leds * 3];
             DateTime now = DateTime.Now;
+            int secondI = (int)Math.Round((double)num_leds * now.Second / 60);
             for (int i = 0; i < num_leds; i++)
             {
                 bool isPreHour = ((double)i / num_leds) < (double)now.Hour / 24;
                 double hourHue = ((double)(now.Hour + (isPreHour ? 1 : 0)) / 24);
                 bool isPreMinute = (double)i / num_leds < (double)now.Minute / 60;
-                bool isSecond = i == Math.Round((double)num_leds * now.Second / 60);
+
+                //bool isSecond = secondI - 1 <= i && i <= secondI + 1 && i != secondI;
+                bool isSecond = i != secondI;
                 var color = new Hsv()
                 {
                     H = (hourHue + (isPreMinute ? 0.5 : 0)) * 360 % 360,
@@ -166,22 +203,21 @@ namespace LightController
 
         private void showColor(IRgb color)
         {
-            byte[] writeBytes = new byte[num_leds * 3];
+            byte[] writeBytes = new byte[num_leds];
             for(int i = 0; i < num_leds; i++)
             {
-                writeBytes[i*3] = (byte)color.R;
-                writeBytes[i * 3+1] = (byte)color.G;
-                writeBytes[i * 3+2] = (byte)color.B;
+                writeBytes[i] = (byte)(color.To<Hsv>().H / 360 * 255);
+            //    writeBytes[i*3] = (byte)color.R;
+            //    writeBytes[i * 3+1] = (byte)color.G;
+            //    writeBytes[i * 3+2] = (byte)color.B;
             }
-            sendLeds(writeBytes);
-            Thread.Sleep(1000);
+            sendBytes(writeBytes);
         }
 
         private void showScreenColor()
         {
             var color = ScreenGrab.getAverageColor(1920, 1080, 32, 32);
             showColor(color);
-            Thread.Sleep(100);
         }
 
 
@@ -199,13 +235,12 @@ namespace LightController
             }
             Thread.Sleep(20);
         }
-
-        double[] totalSpectrum;
+        
         double[] maxSpectrum;
-        double maxSpectrumFrac = 0.8;
+        SpectrumQueue totalSpectrums = new SpectrumQueue(30);
+        double maxVal = 0;
         private int averages = 1;
         private int averageI = 0;
-        private double totalAvgProgress = 0;
         private Stopwatch spectrumWriteWatch = new Stopwatch();
         private void showSpectrumControlled()
         {
@@ -213,68 +248,34 @@ namespace LightController
 
             if (spectrumArray != null)
             {
-                if (totalSpectrum == null)
-                    totalSpectrum = new double[spectrumArray.Length];
                 if (maxSpectrum == null)
                     maxSpectrum = new double[spectrumArray.Length];
 
-                double avgProgress = 0.5 + (double)averageI / averages;
-                totalAvgProgress += avgProgress;
-                for (var i = 0; i < spectrumArray.Length; i++)
-                {
-                    //double thisVal = spectrumArray[i] * (0.5 + Math.Pow(2, 10 * (avgProgress - 1)));
-                    double thisVal = spectrumArray[i] * avgProgress;
-                    //double thisVal = spectrumArray[i];
-                    totalSpectrum[i] += thisVal;
-                }
+                totalSpectrums.Add(spectrumArray);
 
                 if (averageI == averages)
                 {
-                    var HSVArray = new IRgb[totalSpectrum.Length];
-                    for (var i = 0; i < totalSpectrum.Length; i++)
+                    var byteWrite = new byte[num_leds];
+                    int i = 0;
+                    foreach (var average in totalSpectrums.getAverages(SpectrumQueue.circ))
                     {
-                        var val = Math.Max(totalSpectrum[i] / totalAvgProgress, maxSpectrum[i] * maxSpectrumFrac);
-                        maxSpectrum[i] = val;
-
-                        var expo = Math.Pow(2, 10 * (val - 1));
-                        var valueHue = 0.32 + expo * 0.2 + val * 0.2;
-                        //var newRgb = new Hsv { H = (-0.1 + 0.1 * val + ((double)i / totalSpectrum.Length / 4)) * 360, V = val }.ToRgb();
-                        var hue = 0.9 + 0.4 * (double)i / totalSpectrum.Length + 0.5 * expo + ((double)runningStopwatch.ElapsedMilliseconds / 50000);
-                        var rainbow = (double)i / totalSpectrum.Length * 16;
-                        HSVArray[i] = new Hsv
+                        double val = average;
+                        //val = Math.Max(average, maxSpectrum[i] * maxSpectrumFrac);
+                        if (maxSpectrum[i] < val)
                         {
-                            //H = (hue < rainbow ? rainbow - val * (rainbow - hue) : hue - val * (hue - rainbow)) * 360,
-                            // H = (hue*360) % 360,
-                            H = (valueHue * 360) % 360,
-                            //S = 1-0.5*val,
-                            S = 1,
-                            V = val
-                        }.ToRgb();
+                            maxSpectrum[i] = val;
+                        }
+                        else
+                        {
+                            maxSpectrum[i] *= 0.9999999;
+                        }
+                        byteWrite[i] = (byte)(val/maxSpectrum[i] * 255);
+                        //byteWrite[i] = (byte)(val * 255);
+                        i++;
                     }
-
-                    byte[] writeArray = new byte[num_leds * 3];
-                    for (int i = 0; i < num_leds; i++)
-                    {
-                        Func<double, double> valFunc = (double val) => {
-                            var valNorm = val / 255;
-                            return valNorm * valNorm * (3.0 - 2.0 * valNorm);
-                        };
-                        var curVal = HSVArray[i];
-                        var rMod = 1 - 0.5 * curVal.R / 360;
-                        writeArray[i * 3] = (byte)(curVal.R);
-                        writeArray[i * 3 + 1] = (byte)(curVal.G * rMod);
-                        writeArray[i * 3 + 2] = (byte)(curVal.B * rMod);
-                        //writeArray[i * 3] = (byte)(valFunc(curVal.R));
-                        //writeArray[i * 3 + 1] = (byte)(valFunc(curVal.G));
-                        //writeArray[i * 3 + 2] = (byte)(valFunc(curVal.B));
-                    }
-
-                    sendLeds(writeArray);
+                    // sendLeds(writeArray);
+                    sendBytes(byteWrite);
                     averageI = 0;
-                    totalAvgProgress = 0;
-                    totalSpectrum = null;
-                    Console.WriteLine("{0}fps", 1000 / Math.Max(spectrumWriteWatch.ElapsedMilliseconds, 1));
-                    spectrumWriteWatch.Restart();
                 }
                 else
                     averageI++;
@@ -292,61 +293,15 @@ namespace LightController
             port.Write(writeArray, 0, writeArray.Length);
         }
 
-        private void showSimpleValue()
+        private void sendBytes(byte[] bytes)
         {
-            float val = getCurrentValue();
-            samples[i] = val;
-            if (max < val)
-                max = val;
-
-            i = (i + 1) % num_samples;
-            //Console.WriteLine(new string('#', (int)(val*100)));
-            string sendString = getAverage().ToString() + '\n';
-            Console.WriteLine(sendString);
-            port.Write(sendString);
-            Thread.Sleep(1000);
-        }
-
-        private float getAverage()
-        {
-            float total = 0;
-            foreach (float sample in samples)
-            {
-                total += sample;
-            }
-            return total / num_samples / max;
-        }
-
-        private float getCurrentValue()
-        {
-            float max = 0f;
-            using (var sessionManager = GetDefaultAudioSessionManager2(DataFlow.Render))
-            {
-                using (var sessionEnumerator = sessionManager.GetSessionEnumerator())
-                {
-                    foreach (var session in sessionEnumerator)
-                    {
-                        using (var audioMeterInformation = session.QueryInterface<AudioMeterInformation>())
-                        {
-                            if (max < audioMeterInformation.GetPeakValue())
-                                max = audioMeterInformation.GetPeakValue();
-                        }
-                    }
-                }
-            }
-            return max;
-        }
-
-        private AudioSessionManager2 GetDefaultAudioSessionManager2(DataFlow dataFlow)
-        {
-            using (var enumerator = new MMDeviceEnumerator())
-            {
-                using (var device = enumerator.GetDefaultAudioEndpoint(dataFlow, Role.Multimedia))
-                {
-                    var sessionManager = AudioSessionManager2.FromMMDevice(device);
-                    return sessionManager;
-                }
-            }
+            if (bytes.Length != num_leds)
+                throw new IndexOutOfRangeException("The given sendBytes array is the incorrect size");
+            byte[] writeArray = new byte[header.Length + bytes.Length];
+            header.CopyTo(writeArray, 0);
+            bytes.CopyTo(writeArray, header.Length);
+            port.Write(writeArray, 0, writeArray.Length);
+            setFPS();
         }
 
         private void label1_Click(object sender, EventArgs e)
@@ -356,6 +311,7 @@ namespace LightController
 
         enum Mode
         {
+            Debug,
             Spectrum,
             Clock,
             Screen,
@@ -367,6 +323,25 @@ namespace LightController
         {
             var listBox = (ListBox)sender;
             mode = (Mode)Enum.Parse(typeof(Mode), listBox.SelectedItem.ToString());
+        }
+
+        Label fpsLabel;
+        private void fps_value_Paint(object sender, PaintEventArgs e)
+        {
+            fpsLabel = (Label)sender;
+        }
+
+        private void setFPS()
+        {
+            if(fpsLabel != null)
+            {
+                fpsLabel.BeginInvoke((MethodInvoker)delegate ()
+                {
+                    fpsLabel.Text = string.Format("{0}Hz", 1000 / Math.Max(1, spectrumWriteWatch.ElapsedMilliseconds));
+                    spectrumWriteWatch.Restart();
+                });
+
+            }
         }
     }
 }

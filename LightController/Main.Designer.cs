@@ -30,6 +30,8 @@
         {
             this.mode_label = new System.Windows.Forms.Label();
             this.mode_list = new System.Windows.Forms.ListBox();
+            this.fps_value = new System.Windows.Forms.Label();
+            this.fps_title = new System.Windows.Forms.Label();
             this.SuspendLayout();
             // 
             // mode_label
@@ -49,6 +51,7 @@
             "Spectrum",
             "Screen",
             "Clock",
+            "Debug",
             "Off"});
             this.mode_list.Location = new System.Drawing.Point(55, 137);
             this.mode_list.Name = "mode_list";
@@ -56,15 +59,37 @@
             this.mode_list.TabIndex = 3;
             this.mode_list.SelectedIndexChanged += new System.EventHandler(this.mode_list_SelectedIndexChanged);
             // 
+            // fps_value
+            // 
+            this.fps_value.AutoSize = true;
+            this.fps_value.Location = new System.Drawing.Point(52, 73);
+            this.fps_value.Name = "fps_value";
+            this.fps_value.Size = new System.Drawing.Size(13, 13);
+            this.fps_value.TabIndex = 4;
+            this.fps_value.Text = "0";
+            this.fps_value.Paint += new System.Windows.Forms.PaintEventHandler(this.fps_value_Paint);
+            // 
+            // fps_title
+            // 
+            this.fps_title.AutoSize = true;
+            this.fps_title.Location = new System.Drawing.Point(52, 60);
+            this.fps_title.Name = "fps_title";
+            this.fps_title.Size = new System.Drawing.Size(30, 13);
+            this.fps_title.TabIndex = 5;
+            this.fps_title.Text = "FPS:";
+            // 
             // Main
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(284, 261);
+            this.Controls.Add(this.fps_title);
+            this.Controls.Add(this.fps_value);
             this.Controls.Add(this.mode_list);
             this.Controls.Add(this.mode_label);
             this.Name = "Main";
             this.Text = "Main";
+            this.FormClosing += new System.Windows.Forms.FormClosingEventHandler(this.Main_FormClosing);
             this.Load += new System.EventHandler(this.Main_Load);
             this.ResumeLayout(false);
             this.PerformLayout();
@@ -74,5 +99,7 @@
         #endregion
         private System.Windows.Forms.Label mode_label;
         private System.Windows.Forms.ListBox mode_list;
+        private System.Windows.Forms.Label fps_value;
+        private System.Windows.Forms.Label fps_title;
     }
 }

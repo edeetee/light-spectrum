@@ -76,9 +76,9 @@ namespace LightController
             int count = xSamples * ySamples;
             Hsl returnVal = new Hsl()
             {
-                H = totalHue / totalHueCount,
-                S = totalS / count,
-                L = totalLightness / count
+                H = (totalHue / totalHueCount)%360,
+                S = (totalS / count)%1,
+                L = (totalLightness / count)%1
             };
             IRgb returnRgb = returnVal.ToRgb();
             return returnRgb;
