@@ -88,7 +88,7 @@
             this.Controls.Add(this.mode_list);
             this.Controls.Add(this.mode_label);
             this.Name = "Main";
-            this.Text = "Main";
+            this.Text = "LightSpectrum";
             this.FormClosing += new System.Windows.Forms.FormClosingEventHandler(this.Main_FormClosing);
             this.Load += new System.EventHandler(this.Main_Load);
             this.ResumeLayout(false);

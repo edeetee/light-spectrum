@@ -61,7 +61,7 @@ namespace LightController
             spectrum = new LightStripSpectrum(provider.FftSize)
             {
                 SpectrumProvider = (ISpectrumProvider)provider,
-                MinimumFrequency = 80,
+                MinimumFrequency = 20,
                 UseAverage = false,
                 Lights = num_leds,
                 IsXLogScale = false,
@@ -237,7 +237,7 @@ namespace LightController
         }
         
         double[] maxSpectrum;
-        SpectrumQueue totalSpectrums = new SpectrumQueue(30);
+        SpectrumQueue totalSpectrums = new SpectrumQueue(20);
         double maxVal = 0;
         private int averages = 1;
         private int averageI = 0;
