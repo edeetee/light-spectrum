@@ -23,7 +23,7 @@ namespace LightController
     {
         SerialPort port;
 
-        public int num_leds = 200;
+        public int num_leds = 50;
 
         Thread mainThread;
 
@@ -65,7 +65,7 @@ namespace LightController
                 UseAverage = false,
                 Lights = num_leds,
                 IsXLogScale = false,
-                ScalingStrategy = ScalingStrategy.Sqrt,
+                ScalingStrategy = ScalingStrategy.Linear,
             };
 
             var finalSource = notification.ToWaveSource();
@@ -237,7 +237,7 @@ namespace LightController
         }
         
         double[] maxSpectrum;
-        SpectrumQueue totalSpectrums = new SpectrumQueue(20);
+        SpectrumQueue totalSpectrums = new SpectrumQueue(40);
         double maxVal = 0;
         private int averages = 1;
         private int averageI = 0;
@@ -259,23 +259,26 @@ namespace LightController
                     int i = 0;
                     foreach (var average in totalSpectrums.getAverages(SpectrumQueue.circ))
                     {
-                        double val = average;
                         //val = Math.Max(average, maxSpectrum[i] * maxSpectrumFrac);
-                        if (maxSpectrum[i] < val)
+                        if (maxSpectrum[i] < average)
                         {
-                            maxSpectrum[i] = val;
+                            maxSpectrum[i] = average;
                         }
                         else
                         {
-                            maxSpectrum[i] *= 0.9999999;
+                            maxSpectrum[i] *= 0.9999;
                         }
-                        byteWrite[i] = (byte)(val/maxSpectrum[i] * 255);
+                        double finalVal = average / maxSpectrum[i];
+
+                        byteWrite[i] = (byte)(finalVal * 255);
                         //byteWrite[i] = (byte)(val * 255);
                         i++;
                     }
                     // sendLeds(writeArray);
                     sendBytes(byteWrite);
                     averageI = 0;
+                    if (80 < 1000 / Math.Max(1, spectrumWriteWatch.ElapsedMilliseconds))
+                        averages++;
                 }
                 else
                     averageI++;

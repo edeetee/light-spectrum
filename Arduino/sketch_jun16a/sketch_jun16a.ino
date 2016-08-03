@@ -1,7 +1,6 @@
 #include "FastLED.h"
-#define NUM_LEDS 200
-#define NUM_READS 200
-#define FPS 60
+#define NUM_LEDS 100
+#define NUM_READS 50
 
 CRGB leds[NUM_LEDS];
 CRGB readLeds[NUM_READS];
@@ -40,7 +39,8 @@ void mapRealToRead(){
 void loop() {
   if(readData()){
     //drawLeds();
-    drawLedsFloat();
+    //drawLedsFloat();
+    drawLedsReflect();
     //drawStrobe();
     FastLED.show();
   } else {
@@ -65,12 +65,27 @@ void drawLedsFloat(){
   int calcIndex;
   uint8_t val;
   uint8_t curHue;
-  uint8_t milliMod = (uint8_t)(millis()/(20000/255));
+  uint8_t calcI;
+  uint8_t milliMod = (uint8_t)(millis()/(10000/255));
   for(uint8_t i = 0; i < NUM_LEDS; i++){
-    ledMap map = ledMaps[i];
     val = readVals[i];
-    curHue = val/4 + milliMod + i/10;
+    curHue = i*2;
+    curHue += milliMod;
     leds[i] = CHSV(curHue, 255 + (200-max(200,val))/2, val);
+  }
+}
+
+void drawLedsReflect(){
+  int calcIndex;
+  uint8_t val;
+  uint8_t curHue;
+  uint8_t milliMod = (uint8_t)(millis()/(10000/255));
+  for(uint8_t i = 0; i < NUM_READS; i++){
+    val = readVals[i];
+    curHue = i*4;
+    curHue += milliMod;
+    leds[i] = CHSV(curHue, 255, val);
+    leds[(NUM_LEDS-1)-i] = leds[i];
   }
 }
 
