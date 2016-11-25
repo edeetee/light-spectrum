@@ -1,16 +1,25 @@
 #include "FastLED.h"
 #define NUM_LEDS 100
 #define NUM_READS 50
+#define HEADERSIZE 4
+#define HEADERTYPES 4
 
 CRGB leds[NUM_LEDS];
-CRGB readLeds[NUM_READS];
+CRGB readLeds[NUM_LEDS];
 uint8_t readVals[NUM_READS];
+
+typedef enum {DEBUG, SPECTRUM, COLOR} mode;
+mode curMode;
+
+fract8 reading;
 
 void setup() { 
   Serial.begin(115200);
   mapRealToRead();
   FastLED.addLeds<WS2811, 6, BRG>(leds, NUM_LEDS);
-  FastLED.setTemperature(Tungsten100W);
+  FastLED.setCorrection(TypicalLEDStrip);
+  FastLED.setTemperature(Candle+150);
+  curMode = DEBUG;
 }
 
 typedef struct LEDMap{
@@ -37,19 +46,33 @@ void mapRealToRead(){
 }
 
 void loop() {
-  if(readData()){
-    //drawLeds();
-    //drawLedsFloat();
-    drawLedsReflect();
-    //drawStrobe();
-    FastLED.show();
-  } else {
-    //drawLedsIndividuals();
-    //drawLedsDebug();
-    //drawStrobe();
-    clearLeds();
-    FastLED.show();
-    //FastLED.delay(1000/60);
+  readData();
+  switch(curMode){
+    case DEBUG:
+      //drawLedsDebug();
+      clearLeds();
+      break;
+    case SPECTRUM:
+      drawLedsReflect();
+      break;
+    case COLOR:
+      drawColor();
+      break;
+  }
+  FastLED.show();
+}
+
+void drawColor(){
+  static CRGB prevColor;
+  static CRGB curColor;
+  
+  if(reading == 255){
+    prevColor = curColor;
+    curColor = readLeds[0];
+  }
+  
+  for(uint8_t i = 0; i < NUM_LEDS; i++){
+    leds[i] = blend(prevColor, curColor, reading);
   }
 }
 
@@ -61,39 +84,17 @@ void drawLeds(){
   }
 }
 
-void drawLedsFloat(){
-  int calcIndex;
-  uint8_t val;
-  uint8_t curHue;
-  uint8_t calcI;
-  uint8_t milliMod = (uint8_t)(millis()/(10000/255));
-  for(uint8_t i = 0; i < NUM_LEDS; i++){
-    val = readVals[i];
-    curHue = i*2;
-    curHue += milliMod;
-    leds[i] = CHSV(curHue, 255 + (200-max(200,val))/2, val);
-  }
-}
-
 void drawLedsReflect(){
   int calcIndex;
   uint8_t val;
   uint8_t curHue;
-  uint8_t milliMod = (uint8_t)(millis()/(10000/255));
+  uint8_t milliMod = (uint8_t)(millis()/(30000/255));
   for(uint8_t i = 0; i < NUM_READS; i++){
     val = readVals[i];
-    curHue = i*4;
+    curHue = i*2;
     curHue += milliMod;
     leds[i] = CHSV(curHue, 255, val);
     leds[(NUM_LEDS-1)-i] = leds[i];
-  }
-}
-
-void drawStrobe(){
-  static bool isWhite = false;
-  isWhite = !isWhite;
-  for(uint8_t i = 0; i < NUM_LEDS; i++){
-    leds[i] = isWhite ? CRGB::White : CRGB::Black;
   }
 }
 
@@ -101,14 +102,6 @@ void drawLedsDebug(){
   uint8_t milliMod = (uint8_t)(millis()/100);
   for(uint8_t i = 0; i < NUM_LEDS; i++){
     leds[i] = CHSV(255*i/NUM_LEDS+milliMod, 255, 255);
-  }
-}
-
-void drawLedsIndividuals(){
-  uint8_t iMod;
-  for(uint8_t i = 0; i < NUM_LEDS; i++){
-    iMod = i % 3;
-    leds[i] = CRGB(255 *(iMod == 0), 255 *(iMod == 1), 255 *(iMod == 2));
   }
 }
 
@@ -120,91 +113,127 @@ void clearLeds(){
   ledMod++;
 }
 
-
-bool readData() {
-  if(readHeader()){
-    int bytesRead = 0;
-    while(bytesRead < NUM_READS) {
-      bytesRead += Serial.readBytes( (byte*)readVals + bytesRead, NUM_READS-bytesRead);
-    }
-//    while(bytesRead < NUM_READS*3) {
-//      bytesRead += Serial.readBytes( ((byte*)readLeds) + bytesRead, (NUM_READS*3)-bytesRead);
-//    }
-//    CRGB curPixel;
-//    for(int i = 0; i < NUM_READS; i++){
-//      curPixel = readLeds[i];
-//      Serial.print("pixel ");
-//      Serial.print(i);
-//      Serial.print(' ');
-//      Serial.print(curPixel.r);
-//      Serial.print(' ');
-//      Serial.print(curPixel.g);
-//      Serial.print(' ');
-//      Serial.println(curPixel.b);
-//    }
-//    while(true){
-//      if(NUM_READS*3 < Serial.available()){
-//        Serial.println("available");
-//        Serial.readBytes((uint8_t*)readLeds, NUM_READS*3);
-//      }
-//    }
-//    int i = 0;
-//    byte b1;
-//    byte b2;
-//    byte b3;
-//    while(i < NUM_READS){
-//      b1 = Serial.read();
-//      if(b1 != -1){
-//        b2 = Serial.read();
-//        if(b2 != -1){
-//          b3 = Serial.read();
-//          if(b3 != -1){
-//            Serial.print(b1);
-//            Serial.print(' ');
-//            Serial.print(b2);
-//            Serial.print(' ');
-//            Serial.println(b2);
-//            readLeds[i] = CRGB((uint8_t)b1,(uint8_t)b2,(uint8_t)b3);
-//            i++;
-//          }
-//        }
-//      }
-//    }
-    return true;
+void readData() {
+  mode oldMode = curMode;
+  
+  static long lastRead = millis();
+  uint8_t headerType = readHeader();
+  if(headerType != -1)
+    lastRead = millis();
+    
+  switch(headerType){
+    case 0:
+      readSpectrum();
+      break;
+    case 1:
+      readSpectrum();
+      break;
+    case 3:
+      readColor();
+      break;
+    default:
+      break;
   }
-  return false;
+
+  if(3000 < millis()-lastRead)
+    curMode = DEBUG;
+
+  if(curMode != oldMode){
+    Serial.print("MODE CHANGED");
+    Serial.print(oldMode);
+    Serial.println(curMode);
+  }
 }
 
-const char header[9] = "LEDSTRIP";
-bool readHeader(){
-  long lastRecieve = millis();
-  char b;
-  static int i = 0;
-  int timeout = 5;
-  while(i < 8){
-    b = Serial.read();
-    if(b == header[i]){
-      long lastRecieve = millis();
-      i++;
-    //if recieved but not right
-    } else if (b != -1) {
-      Serial.print("HeaderError error: ");
-      Serial.println((uint8_t)b);
-      while(Serial.available() > 0){ 
-        //Serial.println(Serial.read());
-        Serial.read();
-      }
-      Serial.print('\n');
-      i = 0;
-    //if not recieved but first index
-    //} else if(i == 0){
-      //return false;
-    } else if(100 < (millis() - lastRecieve)){
-      Serial.write((millis() - lastRecieve));
-      i = 0;
+void readColor(){
+  int bytesRead = 0;
+  while(bytesRead < sizeof(CRGB)) {
+    bytesRead += Serial.readBytes((byte*)readLeds, sizeof(CRGB)-bytesRead);
+  }
+  curMode = COLOR;
+}
+
+void readSpectrum(){
+  int bytesRead = 0;
+  while(bytesRead < NUM_READS) {
+    bytesRead += Serial.readBytes( (byte*)readVals + bytesRead, NUM_READS-bytesRead);
+  }
+  curMode = SPECTRUM;
+}
+
+const char headers[HEADERTYPES][HEADERSIZE] = {
+  "SPEC",
+  "BEAT",
+  "LEDS",
+  "RGB1"
+};
+
+bool waitForResponse(int wait){
+  long start = millis();
+  while(!Serial.available())
+    if(wait < (millis()-start))
       return false;
+
+  return true;
+}
+
+int readHeader(){
+  char b;
+  int curHeader = -1;
+  static uint8_t skipped = 0;
+  static uint8_t skippedAvg = 1;
+  if(skipped < skippedAvg){
+    skipped++;
+    reading = (fract8)(255*skipped/(skippedAvg+1));
+  }
+  
+  //clear buffer
+  while(Serial.available()){Serial.read();}
+
+  //request data
+  Serial.println("READY");
+
+  //wait for a response
+  if(!waitForResponse(100))
+    return -1;
+  
+  //find current header
+  b = Serial.read();
+  for(int i = 0; i < HEADERTYPES; i++){
+    if(b == headers[i][0]){
+      curHeader = i;
+      break;
     }
   }
-  i = 0;
-  return true;
+
+  if(curHeader == -1){
+    //Serial.println("COULD NOT FIND HEADER");
+    return -1;
+  }
+
+  //read rest of header
+  for(int i = 1; i < HEADERSIZE; i++){
+    //wait for a response
+    if(!waitForResponse(100))
+      return -1;
+    
+    b = Serial.read();
+    if(b != headers[curHeader][i]){
+//      Serial.print("HEADER: ");
+//      Serial.print(curHeader);
+//      Serial.print(" AT INDEX: ");
+//      Serial.print(i);
+//      Serial.print(" RECIEVED: ");
+//      Serial.println((uint8_t)b);
+      return -1;
+    }
+  }
+  
+  Serial.print("READ AFTER FRAMES: ");
+  Serial.println(skipped);
+  skippedAvg = (skippedAvg+skipped)/2;
+  skipped = 0;
+  reading = 255;
+  //read header correctly
+  return curHeader;
 }

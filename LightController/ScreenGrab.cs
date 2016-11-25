@@ -39,21 +39,15 @@ namespace LightController
                     gsrc.ReleaseHdc();
                 }
             }
-
-            double totalHue = 0;
-            double totalLightness = 0;
+            
+            double totalL = 0;
             double totalS = 0;
-            double totalHueCount = 0;
-            //Rgb total = new Rgb()
-            //{
-            //    R = 0,
-            //    G = 0,
-            //    B = 0
-            //};
+            double totalSin = 0;
+            double totalCos = 0;
 
-            for (int x = xSamples / width / 2; x < width; x += width / xSamples)
+            for (int x =  width / xSamples / 2; x < width; x += width / xSamples)
             {
-                for (int y = ySamples / height / 2; y < height; y += height / ySamples)
+                for (int y = height / ySamples / 2; y < height; y += height / ySamples)
                 {
                     Color pixel = screenPixel.GetPixel(x, y);
                     Hsl newHsv = new Rgb()
@@ -62,61 +56,83 @@ namespace LightController
                         G = pixel.G,
                         B = pixel.B
                     }.To<Hsl>();
-                    totalLightness += newHsv.L;
+                    double rad = newHsv.H.ToRadians();
+                    totalSin += Math.Sin(rad)*newHsv.S;
+                    totalCos += Math.Cos(rad)*newHsv.S;
+
+                    totalL += newHsv.L;
                     totalS += newHsv.S;
-                    double hueCount = (1-Math.Abs((newHsv.L)/100 * 2 - 1)) * (newHsv.S/100);
-                    totalHue += newHsv.H * (0.5 + 0.5 * hueCount) + (360 - newHsv.H) * (1.0 - 0.5 * hueCount);
-                    totalHueCount += 1;
-                    //total.R += pixel.R;
-                    //total.G += pixel.G;
-                    //total.B += pixel.B;
                 }
             }
 
             int count = xSamples * ySamples;
+
+            double H = Math.Atan2(totalSin / totalS, totalCos / totalS).ToDegrees();
+            double Hlength = Math.Sqrt(Math.Pow(totalSin / totalS, 2) + Math.Pow(totalCos / totalS, 2));
+
             Hsl returnVal = new Hsl()
             {
-                H = (totalHue / totalHueCount)%360,
-                S = (totalS / count)%1,
-                L = (totalLightness / count)%1
+                H = H,
+                S = Math.Min((totalS / count), 100),
+                L = Math.Min((totalL / count), 100)
             };
             IRgb returnRgb = returnVal.ToRgb();
             return returnRgb;
-            //total.R /= count;
-            //total.G /= count;
-            //total.B /= count;
-            //return total;
         }
 
-        public static IRgb getAverageColorSlow(int width, int height, int xSamples, int ySamples)
+        public static IRgb getAverageColumns(int width, int height, int xSamples, int ySamples)
         {
-            double totalHue = 0;
-            double totalLightness = 0;
-
-            IntPtr hdc = GetDC(IntPtr.Zero);
-            for(int x = 0; x < xSamples; x += xSamples / width)
+            Bitmap screenPixel = new Bitmap(width, height, PixelFormat.Format32bppArgb);
+            using (Graphics gdest = Graphics.FromImage(screenPixel))
             {
-                for(int y = 0; y < ySamples; y += ySamples / height)
+                using (Graphics gsrc = Graphics.FromHwnd(IntPtr.Zero))
                 {
-                    uint pixel = GetPixel(hdc, x, y);
-                    Hsl newHsv = new Rgb()
-                    {
-                        R = ((int)(pixel & 0x000000FF)) / 255.0,
-                        G = ((int)(pixel & 0x0000FF00) >> 8) / 255.0,
-                        B = ((int)(pixel & 0x00FF0000) >> 16) / 255.0
-                    }.To<Hsl>();
-                    totalHue += newHsv.H;
-                    totalLightness += newHsv.L;
+                    IntPtr hSrcDC = gsrc.GetHdc();
+                    IntPtr hDC = gdest.GetHdc();
+                    int retval = BitBlt(hDC, 0, 0, width, height, hSrcDC, 0, 0, (int)CopyPixelOperation.SourceCopy);
+                    gdest.ReleaseHdc();
+                    gsrc.ReleaseHdc();
                 }
             }
-            ReleaseDC(IntPtr.Zero, hdc);
 
-            int count = width * height;
-            return new Hsl()
+            double totalV = 0;
+            double totalS = 0;
+
+            double totalSin = 0;
+            double totalCos = 0;
+            for (int x = xSamples / width / 2; x < width; x += width / xSamples)
             {
-                H = totalHue / count,
-                L = totalLightness / count
-            }.ToRgb();
+                for (int y = ySamples / height / 2; y < height; y += height / ySamples)
+                {
+                    Color pixel = screenPixel.GetPixel(x, y);
+                    Hsv newHsv = new Rgb()
+                    {
+                        R = pixel.R,
+                        G = pixel.G,
+                        B = pixel.B
+                    }.To<Hsv>();
+                    double rad = newHsv.H.ToRadians();
+                    totalSin += Math.Sin(rad);
+                    totalCos += Math.Cos(rad);
+
+                    totalV += newHsv.V;
+                    totalS += newHsv.S;
+                }
+            }
+
+            int count = xSamples * ySamples;
+
+            double H = Math.Atan2(totalSin / count, totalCos / count).ToDegrees();
+            double Hlength = Math.Sqrt(Math.Pow(totalSin / count, 2) + Math.Pow(totalCos / count, 2));
+
+            Hsv returnVal = new Hsv()
+            {
+                H = H,
+                S = Math.Min((totalS / count), 100),
+                V = Math.Min((totalV / count) * 10 * Math.Min(0.1, Hlength), 100)
+            };
+            IRgb returnRgb = returnVal.ToRgb();
+            return returnRgb;
         }
     }
 }

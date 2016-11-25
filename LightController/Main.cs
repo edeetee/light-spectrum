@@ -27,6 +27,9 @@ namespace LightController
 
         Thread mainThread;
 
+        byte[] writeBuffer;
+        AutoResetEvent bufferClearedHandle = new AutoResetEvent(true);
+
         FftProvider provider;
         LightStripSpectrum spectrum;
         Stopwatch runningStopwatch = new Stopwatch();
@@ -34,6 +37,8 @@ namespace LightController
         WasapiLoopbackCapture capture;
 
         bool running = true;
+
+        bool doBeatNextUpload = false;
 
         public Main()
         {
@@ -53,6 +58,7 @@ namespace LightController
             var inSource = new SoundInSource(capture);
             ISampleSource sampleSource = inSource.ToSampleSource();
             var notification = new SingleBlockNotificationStream(sampleSource);
+
             notification.SingleBlockRead += (s, a) =>
             {
                 provider.Add(a.Left, a.Right);
@@ -135,20 +141,20 @@ namespace LightController
         private void Port_DataReceived(object sender, SerialDataReceivedEventArgs e)
         {
             string line = port.ReadLine();
-            if (line.StartsWith("HeaderError"))
+            if (line.StartsWith("READY"))
             {
-                if (!lastHeaderError.IsRunning)
-                    lastHeaderError.Start();
-                else if (10 < lastHeaderError.ElapsedMilliseconds && lastHeaderError.ElapsedMilliseconds < 1000)
+                if (writeBuffer != null)
                 {
-                    averages++;
-                    Console.WriteLine("Now uses {0} averages", averages);
-                    lastHeaderError.Reset();
+                    port.Write(writeBuffer, 0, writeBuffer.Length);
+                    writeBuffer = null;
                 }
-                else if (1000 < lastHeaderError.ElapsedMilliseconds)
-                    lastHeaderError.Restart();
+                else
+                    port.Write("NO");
+
+                bufferClearedHandle.Set();
             }
-            Console.WriteLine(line);
+            else
+                Debug.Write(line);
         }
 
         private void showDebug()
@@ -203,25 +209,23 @@ namespace LightController
 
         private void showColor(IRgb color)
         {
-            byte[] writeBytes = new byte[num_leds];
-            for(int i = 0; i < num_leds; i++)
-            {
-                writeBytes[i] = (byte)(color.To<Hsv>().H / 360 * 255);
-            //    writeBytes[i*3] = (byte)color.R;
-            //    writeBytes[i * 3+1] = (byte)color.G;
-            //    writeBytes[i * 3+2] = (byte)color.B;
-            }
-            sendBytes(writeBytes);
+            byte[] writeBytes = {
+                (byte)color.R,
+                (byte)color.G,
+                (byte)color.B
+            };
+            sendBytes(3, writeBytes);
         }
+
+
 
         private void showScreenColor()
         {
-            var color = ScreenGrab.getAverageColor(1920, 1080, 32, 32);
+            var color = ScreenGrab.getAverageColor(1920, 1080, 64, 64);
             showColor(color);
         }
 
-
-        byte[] header = Encoding.ASCII.GetBytes("LEDSTRIP");
+        
         private void showSpectrum()
         {
             var spectrumArray = spectrum.getSpectrumLine();
@@ -237,7 +241,9 @@ namespace LightController
         }
         
         double[] maxSpectrum;
-        SpectrumQueue totalSpectrums = new SpectrumQueue(40);
+        static int UIAvTotalSpectrums = 500;
+        static int UIPaddingTotalSpectrums = 400;
+        SpectrumQueue totalSpectrums = new SpectrumQueue(300);
         double maxVal = 0;
         private int averages = 1;
         private int averageI = 0;
@@ -257,7 +263,7 @@ namespace LightController
                 {
                     var byteWrite = new byte[num_leds];
                     int i = 0;
-                    foreach (var average in totalSpectrums.getAverages(SpectrumQueue.circ))
+                    foreach (var average in totalSpectrums.getAverages(SpectrumQueue.expo))
                     {
                         //val = Math.Max(average, maxSpectrum[i] * maxSpectrumFrac);
                         if (maxSpectrum[i] < average)
@@ -266,7 +272,7 @@ namespace LightController
                         }
                         else
                         {
-                            maxSpectrum[i] *= 0.9999;
+                            maxSpectrum[i] *= 0.999;
                         }
                         double finalVal = average / maxSpectrum[i];
 
@@ -275,10 +281,17 @@ namespace LightController
                         i++;
                     }
                     // sendLeds(writeArray);
-                    sendBytes(byteWrite);
+                    if (doBeatNextUpload) {
+                        sendBytes(1, byteWrite);
+                        doBeatNextUpload = false;
+                    } else
+                        sendBytes(0, byteWrite);
+
                     averageI = 0;
-                    if (80 < 1000 / Math.Max(1, spectrumWriteWatch.ElapsedMilliseconds))
-                        averages++;
+                    //if (80 < 1000 / Math.Max(1, spectrumWriteWatch.ElapsedMilliseconds))
+                    //    averages++;
+                    //else if (1000 / Math.Max(1, spectrumWriteWatch.ElapsedMilliseconds) < 30 && 1 < averages)
+                    //    averages--;
                 }
                 else
                     averageI++;
@@ -288,23 +301,30 @@ namespace LightController
 
         private void sendLeds(byte[] bytes)
         {
-            if (bytes.Length != num_leds * 3)
-                throw new IndexOutOfRangeException("The given sendLeds array is the incorrect size");
-            byte[] writeArray = new byte[header.Length + bytes.Length];
-            header.CopyTo(writeArray, 0);
-            bytes.CopyTo(writeArray, header.Length);
-            port.Write(writeArray, 0, writeArray.Length);
+            sendBytes(2, bytes);
         }
-
-        private void sendBytes(byte[] bytes)
+        
+        string[] headers =
         {
-            if (bytes.Length != num_leds)
-                throw new IndexOutOfRangeException("The given sendBytes array is the incorrect size");
-            byte[] writeArray = new byte[header.Length + bytes.Length];
-            header.CopyTo(writeArray, 0);
-            bytes.CopyTo(writeArray, header.Length);
-            port.Write(writeArray, 0, writeArray.Length);
-            setFPS();
+            "SPEC",
+            "BEAT",
+            "LEDS",
+            "RGB1"
+        };
+
+        private void sendBytes(int headerID, byte[] bytes)
+        {
+            string header = headers[headerID];
+
+            //wait for buffer to be cleared
+            if (bufferClearedHandle.WaitOne(1000))
+            {
+                writeBuffer = new byte[header.Length + bytes.Length];
+                ASCIIEncoding.ASCII.GetBytes(header).CopyTo(writeBuffer, 0);
+                bytes.CopyTo(writeBuffer, header.Length);
+
+                setFPS();
+            }
         }
 
         private void label1_Click(object sender, EventArgs e)
@@ -320,7 +340,7 @@ namespace LightController
             Screen,
             Off
         }
-        Mode mode = Mode.Off;
+        Mode mode = Mode.Spectrum;
 
         private void mode_list_SelectedIndexChanged(object sender, EventArgs e)
         {
@@ -345,6 +365,15 @@ namespace LightController
                 });
 
             }
+        }
+
+        
+
+        private void trackBar1_Scroll(object sender, EventArgs e)
+        {
+            TrackBar bar = (TrackBar)sender;
+            totalSpectrums.length = UIAvTotalSpectrums + (UIPaddingTotalSpectrums * (bar.Value - bar.Maximum/2)/(bar.Maximum / 2));
+            Debug.Print("new totalSpectrumLength: " + totalSpectrums.length);
         }
     }
 }

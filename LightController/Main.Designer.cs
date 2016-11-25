@@ -32,6 +32,8 @@
             this.mode_list = new System.Windows.Forms.ListBox();
             this.fps_value = new System.Windows.Forms.Label();
             this.fps_title = new System.Windows.Forms.Label();
+            this.trackBar1 = new System.Windows.Forms.TrackBar();
+            ((System.ComponentModel.ISupportInitialize)(this.trackBar1)).BeginInit();
             this.SuspendLayout();
             // 
             // mode_label
@@ -72,17 +74,28 @@
             // fps_title
             // 
             this.fps_title.AutoSize = true;
-            this.fps_title.Location = new System.Drawing.Point(52, 60);
+            this.fps_title.Location = new System.Drawing.Point(52, 41);
             this.fps_title.Name = "fps_title";
             this.fps_title.Size = new System.Drawing.Size(30, 13);
             this.fps_title.TabIndex = 5;
             this.fps_title.Text = "FPS:";
+            // 
+            // trackBar1
+            // 
+            this.trackBar1.LargeChange = 1;
+            this.trackBar1.Location = new System.Drawing.Point(109, 41);
+            this.trackBar1.Name = "trackBar1";
+            this.trackBar1.Size = new System.Drawing.Size(163, 45);
+            this.trackBar1.TabIndex = 6;
+            this.trackBar1.Value = 5;
+            this.trackBar1.Scroll += new System.EventHandler(this.trackBar1_Scroll);
             // 
             // Main
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(284, 261);
+            this.Controls.Add(this.trackBar1);
             this.Controls.Add(this.fps_title);
             this.Controls.Add(this.fps_value);
             this.Controls.Add(this.mode_list);
@@ -91,6 +104,7 @@
             this.Text = "LightSpectrum";
             this.FormClosing += new System.Windows.Forms.FormClosingEventHandler(this.Main_FormClosing);
             this.Load += new System.EventHandler(this.Main_Load);
+            ((System.ComponentModel.ISupportInitialize)(this.trackBar1)).EndInit();
             this.ResumeLayout(false);
             this.PerformLayout();
 
@@ -101,5 +115,6 @@
         private System.Windows.Forms.ListBox mode_list;
         private System.Windows.Forms.Label fps_value;
         private System.Windows.Forms.Label fps_title;
+        private System.Windows.Forms.TrackBar trackBar1;
     }
 }
